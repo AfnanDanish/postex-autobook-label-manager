@@ -3,7 +3,7 @@
 Plugin Name: PostEx AutoBook & Label Manager
 Description: Automatically book WooCommerce COD orders with PostEx, manage tracking, airway bills, and more.
 Version: 1.0.0
-Author: Your Name
+Author: Afnan Ali Danish
 License: GPL2
 Text Domain: postex-autobook-label-manager
 */
