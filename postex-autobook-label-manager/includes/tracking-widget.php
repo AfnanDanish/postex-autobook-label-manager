@@ -47,13 +47,84 @@ class PostEx_Tracking_Widget extends WP_Widget {
 function postex_render_tracking_form() {
     ?>
     <style>
-    .postex-tracking-box { max-width: 400px; margin: 0 auto; background: #fff; border: 2px solid #0a4b78; border-radius: 8px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
-    .postex-tracking-box h3 { color: #0a4b78; margin-top: 0; }
-    .postex-tracking-box input[type="text"] { width: 100%; padding: 8px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #ccc; }
-    .postex-tracking-box button { background: #0a4b78; color: #fff; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; }
-    .postex-tracking-status { margin-top: 18px; }
-    .postex-tracking-error { color: #b00; margin-top: 10px; }
-    .postex-tracking-history { margin-top: 10px; font-size: 0.95em; }
+    .postex-tracking-box { 
+        max-width: 400px; 
+        margin: 0 auto; 
+        background: #ffffff; 
+        border: 2px solid #000000; 
+        border-radius: 8px; 
+        padding: 24px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .postex-tracking-box h3 { 
+        color: #000000; 
+        margin-top: 0; 
+        margin-bottom: 16px;
+        font-weight: 600;
+        text-align: center;
+    }
+    .postex-tracking-box input[type="text"] { 
+        width: 100%; 
+        padding: 12px; 
+        margin-bottom: 16px; 
+        border-radius: 4px; 
+        border: 2px solid #000000; 
+        font-size: 14px;
+        color: #000000;
+        box-sizing: border-box;
+    }
+    .postex-tracking-box input[type="text"]:focus {
+        outline: none;
+        border-color: #000000;
+    }
+    .postex-tracking-box button { 
+        background: #000000; 
+        color: #ffffff; 
+        border: 2px solid #000000; 
+        padding: 12px 24px; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        width: 100%;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .postex-tracking-box button:hover {
+        background: #333333;
+        border-color: #333333;
+    }
+    .postex-tracking-status { 
+        margin-top: 20px; 
+        padding: 16px;
+        background: #f8f8f8;
+        border: 1px solid #000000;
+        border-radius: 4px;
+        color: #000000;
+    }
+    .postex-tracking-error { 
+        color: #000000; 
+        margin-top: 16px; 
+        padding: 12px;
+        background: #f0f0f0;
+        border: 1px solid #000000;
+        border-radius: 4px;
+        text-align: center;
+    }
+    .postex-tracking-history { 
+        margin-top: 16px; 
+        font-size: 14px;
+        border-top: 1px solid #000000;
+        padding-top: 16px;
+        color: #000000;
+    }
+    .postex-tracking-history ul {
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+    }
+    .postex-tracking-history li {
+        margin-bottom: 4px;
+        color: #000000;
+    }
     </style>
     <div class="postex-tracking-box">
         <h3><?php esc_html_e('Track Your Order', 'postex-autobook-label-manager'); ?></h3>
