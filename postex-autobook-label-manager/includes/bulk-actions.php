@@ -8,8 +8,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_filter('bulk_actions-edit-shop_order', function($bulk_actions) {
     $bulk_actions['postex_bulk_book'] = __('Book with PostEx', 'postex-autobook-label-manager');
     $bulk_actions['postex_bulk_loadsheet'] = __('Generate PostEx Load Sheet', 'postex-autobook-label-manager');
-    $bulk_actions['postex_bulk_airwaybill'] = __('Print Airway Bills (max 10)', 'postex-autobook-label-manager');
-    $bulk_actions['postex_bulk_cancel'] = __('Bulk Cancel with PostEx', 'postex-autobook-label-manager');
     return $bulk_actions;
 });
 
@@ -80,46 +78,6 @@ function postex_bulk_book_review_page() {
         $phone = esc_attr($order->get_billing_phone());
         $address = esc_attr($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
         $city = esc_attr($order->get_billing_city());
-        $city_normalized = strtolower(trim($city));
-        // City dropdown with robust matching
-        echo '<td><select name="orders[' . $order_id . '][cityName]">';
-        $matched = false;
-        $best_match_index = null;
-        $best_match_score = 0;
-        foreach ($cities as $i => $city_option) {
-            $city_option_normalized = strtolower(trim($city_option));
-            $selected = '';
-            // Exact match
-            if ($city_option_normalized === $city_normalized && !$matched) {
-                $selected = 'selected';
-                $matched = true;
-            } else if (!$matched) {
-                // Partial match (contains or starts with)
-                $score = 0;
-                if (strpos($city_option_normalized, $city_normalized) !== false || strpos($city_normalized, $city_option_normalized) !== false) {
-                    $score += 2;
-                }
-                if (substr($city_option_normalized, 0, 3) === substr($city_normalized, 0, 3)) {
-                    $score += 1;
-                }
-                // Levenshtein distance (if available)
-                if (function_exists('levenshtein')) {
-                    $lev = levenshtein($city_option_normalized, $city_normalized);
-                    if ($lev < 3) $score += 2;
-                    else if ($lev < 5) $score += 1;
-                }
-                if ($score > $best_match_score) {
-                    $best_match_score = $score;
-                    $best_match_index = $i;
-                }
-            }
-            echo '<option value="' . esc_attr($city_option) . '" ' . $selected . '>' . esc_html($city_option) . '</option>';
-        }
-        // If no exact match, select the best fuzzy match
-        if (!$matched && $best_match_index !== null) {
-            echo "<script>document.addEventListener('DOMContentLoaded',function(){var sel=document.getElementsByName('orders[{$order_id}][cityName]')[0];if(sel)sel.selectedIndex={$best_match_index};});</script>";
-        }
-        echo '</select></td>';
         $items = [];
         foreach ($order->get_items() as $item) {
             $items[] = $item->get_name() . ' x' . $item->get_quantity();
@@ -133,6 +91,17 @@ function postex_bulk_book_review_page() {
         echo '<td><input type="text" name="orders[' . $order_id . '][customerName]" value="' . $name . '" /></td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][customerPhone]" value="' . $phone . '" /></td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][deliveryAddress]" value="' . $address . '" /></td>';
+        // City dropdown
+        echo '<td><select name="orders[' . $order_id . '][cityName]">';
+        foreach ($cities as $city_option) {
+            $selected = ($city_option == $city) ? 'selected' : '';
+            echo '<option value="' . esc_attr($city_option) . '" ' . $selected . '>' . esc_html($city_option) . '</option>';
+        }
+        echo '</select></td>';
+        echo '<td><input type="text" name="orders[' . $order_id . '][orderDetail]" value="' . $items_str . '" /></td>';
+        echo '<td><input type="number" step="0.01" name="orders[' . $order_id . '][invoicePayment]" value="' . $cod_amount . '" /></td>';
+        echo '<td><input type="text" name="orders[' . $order_id . '][orderRefNumber]" value="' . $order_ref . '" /></td>';
+        echo '<td><input type="text" name="orders[' . $order_id . '][transactionNotes]" value="' . esc_attr($default_note) . '" /></td>';
         // Pickup address dropdown
         echo '<td><select name="orders[' . $order_id . '][pickupAddressCode]">';
         foreach ($pickup_addresses as $addr) {
@@ -149,85 +118,16 @@ function postex_bulk_book_review_page() {
 }
 
 add_filter('handle_bulk_actions-edit-shop_order', function($redirect_to, $action, $order_ids) {
+    if ($action === 'postex_bulk_book') {
+        $url = add_query_arg([
+            'page' => 'postex-bulk-book-review',
+            'order_ids' => implode(',', $order_ids),
+        ], admin_url('admin.php'));
+        wp_redirect($url); exit;
+    }
     $api_token = get_option('postex_api_token');
     $pickup_address_code = get_option('postex_pickup_address_code', '001');
     if ( ! $api_token ) return $redirect_to;
-    if ( $action === 'postex_bulk_airwaybill' ) {
-        $tracking_numbers = [];
-        foreach ( $order_ids as $order_id ) {
-            $tracking = get_post_meta($order_id, '_postex_tracking_number', true);
-            if ( $tracking ) $tracking_numbers[] = $tracking;
-            if ( count($tracking_numbers) >= 10 ) break;
-        }
-        if ( ! empty($tracking_numbers) ) {
-            $url = 'https://api.postex.pk/services/integration/api/order/v1/get-invoice?trackingNumbers=' . urlencode(implode(',', $tracking_numbers));
-            // Redirect to PDF (let browser handle download/print)
-            wp_redirect($url); exit;
-        } else {
-            $redirect_to = add_query_arg('postex_bulk_airwaybill', 'none', $redirect_to);
-        }
-    }
-    if ( $action === 'postex_bulk_cancel' ) {
-        foreach ( $order_ids as $order_id ) {
-            $tracking = get_post_meta($order_id, '_postex_tracking_number', true);
-            if ( $tracking ) {
-                $response = wp_remote_request('https://api.postex.pk/services/integration/api/order/v1/cancel-order', [
-                    'method' => 'PUT',
-                    'headers' => [
-                        'Content-Type' => 'application/json',
-                        'token' => $api_token,
-                    ],
-                    'body' => wp_json_encode(['trackingNumber' => $tracking]),
-                    'timeout' => 20,
-                ]);
-                $order = wc_get_order($order_id);
-                if ( is_wp_error($response) ) {
-                    $order->add_order_note('PostEx Bulk Cancel Error: ' . $response->get_error_message());
-                } else {
-                    $body = json_decode(wp_remote_retrieve_body($response), true);
-                    $msg = isset($body['statusMessage']) ? $body['statusMessage'] : 'Unknown response';
-                    $order->add_order_note('PostEx Bulk Cancel Response: ' . $msg);
-                }
-            }
-        }
-        $redirect_to = add_query_arg('postex_bulk_cancel', count($order_ids), $redirect_to);
-    }
-    if ( $action === 'postex_bulk_loadsheet' ) {
-        $tracking_numbers = [];
-        foreach ( $order_ids as $order_id ) {
-            $tracking = get_post_meta($order_id, '_postex_tracking_number', true);
-            if ( $tracking ) $tracking_numbers[] = $tracking;
-        }
-        if ( ! empty($tracking_numbers) ) {
-            $postex_data = [
-                'pickupAddress' => '', // Optional: can be set from settings or meta
-                'trackingNumbers' => $tracking_numbers,
-            ];
-            $response = wp_remote_post('https://api.postex.pk/services/integration/api/order/v2/generate-load-sheet', [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'token'        => $api_token,
-                ],
-                'body'    => wp_json_encode($postex_data),
-                'timeout' => 60,
-            ]);
-            // Add note to all selected orders
-            foreach ( $order_ids as $order_id ) {
-                $order = wc_get_order($order_id);
-                if ( is_wp_error($response) ) {
-                    $order->add_order_note('PostEx Load Sheet Error: ' . $response->get_error_message());
-                } else {
-                    $body = wp_remote_retrieve_body($response);
-                    if ( strpos($body, '%PDF') !== false ) {
-                        $order->add_order_note('PostEx Load Sheet generated.');
-                    } else {
-                        $order->add_order_note('PostEx Load Sheet response: ' . substr($body, 0, 200));
-                    }
-                }
-            }
-        }
-        $redirect_to = add_query_arg('postex_bulk_loadsheet', count($tracking_numbers), $redirect_to);
-    }
     if ( $action === 'postex_bulk_book' ) {
         foreach ( $order_ids as $order_id ) {
             $order = wc_get_order($order_id);
@@ -285,8 +185,44 @@ add_filter('handle_bulk_actions-edit-shop_order', function($redirect_to, $action
         }
         $redirect_to = add_query_arg('postex_bulk_booked', count($order_ids), $redirect_to);
     }
+    if ( $action === 'postex_bulk_loadsheet' ) {
+        $tracking_numbers = [];
+        foreach ( $order_ids as $order_id ) {
+            $tracking = get_post_meta($order_id, '_postex_tracking_number', true);
+            if ( $tracking ) $tracking_numbers[] = $tracking;
+        }
+        if ( ! empty($tracking_numbers) ) {
+            $postex_data = [
+                'pickupAddress' => '', // Optional: can be set from settings or meta
+                'trackingNumbers' => $tracking_numbers,
+            ];
+            $response = wp_remote_post('https://api.postex.pk/services/integration/api/order/v2/generate-load-sheet', [
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'token'        => $api_token,
+                ],
+                'body'    => wp_json_encode($postex_data),
+                'timeout' => 60,
+            ]);
+            // Add note to all selected orders
+            foreach ( $order_ids as $order_id ) {
+                $order = wc_get_order($order_id);
+                if ( is_wp_error($response) ) {
+                    $order->add_order_note('PostEx Load Sheet Error: ' . $response->get_error_message());
+                } else {
+                    $body = wp_remote_retrieve_body($response);
+                    if ( strpos($body, '%PDF') !== false ) {
+                        $order->add_order_note('PostEx Load Sheet generated.');
+                    } else {
+                        $order->add_order_note('PostEx Load Sheet response: ' . substr($body, 0, 200));
+                    }
+                }
+            }
+        }
+        $redirect_to = add_query_arg('postex_bulk_loadsheet', count($tracking_numbers), $redirect_to);
+    }
     return $redirect_to;
-}, 8, 3);
+}, 9, 3);
 
 add_action('admin_init', function() {
     if (isset($_POST['postex_bulk_book_confirm']) && isset($_POST['orders']) && check_admin_referer('postex_bulk_book_review')) {

@@ -33,17 +33,7 @@ function postex_render_order_metabox($post) {
             if ( ! is_wp_error($response) ) {
                 $body = json_decode(wp_remote_retrieve_body($response), true);
                 if ( isset($body['dist']['transactionStatus']) ) {
-                    $status = esc_html($body['dist']['transactionStatus']);
-                    echo '<div style="margin:10px 0;padding:10px;border:1px solid #111;background:#fafafa;">';
-                    echo '<strong>' . esc_html__('Booking Status:', 'postex-autobook-label-manager') . '</strong> ' . $status . '<br>';
-                    if (!empty($body['dist']['transactionStatusHistory']) && is_array($body['dist']['transactionStatusHistory'])) {
-                        echo '<div style="margin-top:8px;"><strong>' . esc_html__('Tracking Timeline:', 'postex-autobook-label-manager') . '</strong><ul style="margin:0 0 0 18px;">';
-                        foreach ($body['dist']['transactionStatusHistory'] as $hist) {
-                            echo '<li>' . esc_html($hist['transactionStatusMessage']) . ' <span style="color:#888;">(' . esc_html($hist['transactionStatusMessageCode']) . ')</span></li>';
-                        }
-                        echo '</ul></div>';
-                    }
-                    echo '</div>';
+                    echo '<p><strong>' . esc_html__('Order Status:', 'postex-autobook-label-manager') . '</strong> ' . esc_html($body['dist']['transactionStatus']) . '</p>';
                 }
             }
         }
