@@ -46,55 +46,142 @@ function postex_get_operational_cities() {
     return [];
 }
 
+/**
+ * Calculate Levenshtein distance between two strings (edit distance)
+ */
+function postex_levenshtein_distance($str1, $str2) {
+    $len1 = strlen($str1);
+    $len2 = strlen($str2);
+    
+    if ($len1 == 0) return $len2;
+    if ($len2 == 0) return $len1;
+    
+    $matrix = array();
+    for ($i = 0; $i <= $len1; $i++) {
+        $matrix[$i][0] = $i;
+    }
+    for ($j = 0; $j <= $len2; $j++) {
+        $matrix[0][$j] = $j;
+    }
+    
+    for ($i = 1; $i <= $len1; $i++) {
+        for ($j = 1; $j <= $len2; $j++) {
+            $cost = ($str1[$i-1] == $str2[$j-1]) ? 0 : 1;
+            $matrix[$i][$j] = min(
+                $matrix[$i-1][$j] + 1,     // deletion
+                $matrix[$i][$j-1] + 1,     // insertion
+                $matrix[$i-1][$j-1] + $cost // substitution
+            );
+        }
+    }
+    
+    return $matrix[$len1][$len2];
+}
+
+/**
+ * Calculate similarity score between two strings (0-100, higher = more similar)
+ */
+function postex_string_similarity($str1, $str2) {
+    $str1 = strtolower(trim($str1));
+    $str2 = strtolower(trim($str2));
+    
+    if ($str1 === $str2) return 100;
+    
+    $maxLen = max(strlen($str1), strlen($str2));
+    if ($maxLen == 0) return 100;
+    
+    $distance = postex_levenshtein_distance($str1, $str2);
+    return round((1 - $distance / $maxLen) * 100, 2);
+}
+
+/**
+ * Clean and normalize city names for better matching
+ */
+function postex_normalize_city_name($city) {
+    $city = strtolower(trim($city));
+    
+    // Remove common suffixes/prefixes
+    $city = preg_replace('/\b(city|town|district|tehsil)\b/', '', $city);
+    
+    // Remove extra spaces and special characters
+    $city = preg_replace('/[^a-z0-9\s]/', '', $city);
+    $city = preg_replace('/\s+/', ' ', $city);
+    
+    return trim($city);
+}
+
 function postex_find_best_city_match($user_city, $operational_cities) {
     if (empty($user_city) || empty($operational_cities)) {
-        return '';
+        return !empty($operational_cities) ? $operational_cities[0] : '';
     }
     
-    $user_city_lower = strtolower(trim($user_city));
+    $user_city_normalized = postex_normalize_city_name($user_city);
+    $best_match = '';
+    $highest_score = 0;
+    $similarity_threshold = 60; // Minimum 60% similarity required
     
-    // First: Try exact match (case insensitive)
+    // Step 1: Try exact match first (case insensitive)
     foreach ($operational_cities as $city) {
-        if (strtolower(trim($city)) === $user_city_lower) {
+        if (strtolower(trim($city)) === strtolower(trim($user_city))) {
             return $city;
         }
     }
     
-    // Second: Try partial match (user city contains operational city or vice versa)
+    // Step 2: Try substring matches (one contains the other)
     foreach ($operational_cities as $city) {
-        $city_lower = strtolower(trim($city));
-        if (strpos($user_city_lower, $city_lower) !== false || strpos($city_lower, $user_city_lower) !== false) {
+        $city_normalized = postex_normalize_city_name($city);
+        
+        // Check if one string contains the other
+        if (strpos($user_city_normalized, $city_normalized) !== false || 
+            strpos($city_normalized, $user_city_normalized) !== false) {
             return $city;
         }
     }
     
-    // Third: Try common city name variations
-    $city_variations = [
-        'lahore' => ['lahore', 'lhr'],
-        'karachi' => ['karachi', 'khi'],
-        'islamabad' => ['islamabad', 'isb'],
-        'rawalpindi' => ['rawalpindi', 'rwp'],
-        'faisalabad' => ['faisalabad', 'fsd'],
-        'multan' => ['multan', 'mtn'],
-        'peshawar' => ['peshawar', 'pwr'],
-        'quetta' => ['quetta', 'qta'],
-        'hyderabad' => ['hyderabad', 'hyd'],
-        'gujranwala' => ['gujranwala', 'gjw'],
-        'sialkot' => ['sialkot', 'skt']
+    // Step 3: Calculate similarity scores for all cities
+    $scores = array();
+    foreach ($operational_cities as $city) {
+        $city_normalized = postex_normalize_city_name($city);
+        
+        // Calculate multiple similarity metrics
+        $exact_similarity = postex_string_similarity($user_city_normalized, $city_normalized);
+        $start_similarity = postex_string_similarity(substr($user_city_normalized, 0, 4), substr($city_normalized, 0, 4));
+        $phonetic_similarity = postex_string_similarity(soundex($user_city_normalized), soundex($city_normalized)) * 0.7; // Weight phonetic less
+        
+        // Combined score with weights
+        $combined_score = ($exact_similarity * 0.7) + ($start_similarity * 0.2) + ($phonetic_similarity * 0.1);
+        
+        $scores[$city] = $combined_score;
+        
+        if ($combined_score > $highest_score) {
+            $highest_score = $combined_score;
+            $best_match = $city;
+        }
+    }
+    
+    // Step 4: Only return match if it meets minimum similarity threshold
+    if ($highest_score >= $similarity_threshold) {
+        return $best_match;
+    }
+    
+    // Step 5: Last resort - try common abbreviations
+    $common_abbrevs = [
+        'lhr' => 'lahore', 'khi' => 'karachi', 'isb' => 'islamabad',
+        'rwp' => 'rawalpindi', 'fsd' => 'faisalabad', 'mtn' => 'multan'
     ];
     
-    foreach ($city_variations as $standard => $variations) {
-        if (in_array($user_city_lower, $variations)) {
-            foreach ($operational_cities as $city) {
-                if (strtolower(trim($city)) === $standard) {
-                    return $city;
-                }
+    $user_lower = strtolower(trim($user_city));
+    if (isset($common_abbrevs[$user_lower])) {
+        $full_name = $common_abbrevs[$user_lower];
+        foreach ($operational_cities as $city) {
+            if (strpos(strtolower(trim($city)), $full_name) !== false) {
+                return $city;
             }
         }
     }
     
-    // Return first city if no match found (fallback)
-    return !empty($operational_cities) ? $operational_cities[0] : '';
+    // Fallback: Return the city with highest score, even if below threshold
+    return $best_match ?: (!empty($operational_cities) ? $operational_cities[0] : '');
 }
 
 function postex_bulk_book_review_page() {
@@ -107,7 +194,16 @@ function postex_bulk_book_review_page() {
     $cities = postex_get_operational_cities();
     $pickup_addresses = function_exists('postex_get_merchant_pickup_address') ? postex_get_merchant_pickup_address() : [];
     $default_note = get_option('postex_default_order_note', 'CONTACT CUSTOMER ON PHONE NUMBER');
+    
+    // Debug: Show available cities if requested
+    if (isset($_GET['debug_cities'])) {
+        echo '<div class="notice notice-info"><p><strong>Available PostEx Cities:</strong><br>';
+        echo implode(', ', array_slice($cities, 0, 20)) . (count($cities) > 20 ? '... (' . count($cities) . ' total)' : '');
+        echo '</p></div>';
+    }
+    
     echo '<div class="wrap"><h1>' . esc_html__('Review & Edit Orders Before PostEx Booking', 'postex-autobook-label-manager') . '</h1>';
+    echo '<p><a href="' . add_query_arg('debug_cities', '1') . '">Show Available Cities</a></p>';
     echo '<form method="post">';
     wp_nonce_field('postex_bulk_book_review');
     echo '<table class="widefat"><thead><tr>';
@@ -129,6 +225,15 @@ function postex_bulk_book_review_page() {
         $phone = esc_attr($order->get_billing_phone());
         $address = esc_attr($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
         $city = esc_attr($order->get_billing_city());
+        
+        // Debug: Show original city and matched city with similarity score
+        $best_match = postex_find_best_city_match($city, $cities);
+        $debug_info = '';
+        if ($city !== $best_match) {
+            $similarity = postex_string_similarity(postex_normalize_city_name($city), postex_normalize_city_name($best_match));
+            $debug_info = ' (Original: ' . $city . ' → Matched: ' . $best_match . ' | Similarity: ' . $similarity . '%)';
+        }
+        
         $items = [];
         foreach ($order->get_items() as $item) {
             $items[] = $item->get_name() . ' x' . $item->get_quantity();
@@ -143,13 +248,12 @@ function postex_bulk_book_review_page() {
         echo '<td><input type="text" name="orders[' . $order_id . '][customerPhone]" value="' . $phone . '" /></td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][deliveryAddress]" value="' . $address . '" /></td>';
         // City dropdown
-        $best_match = postex_find_best_city_match($city, $cities);
-        echo '<td><select name="orders[' . $order_id . '][cityName]">';
+        echo '<td><select name="orders[' . $order_id . '][cityName]" title="' . esc_attr($debug_info) . '">';
         foreach ($cities as $city_option) {
             $selected = ($city_option === $best_match) ? 'selected' : '';
             echo '<option value="' . esc_attr($city_option) . '" ' . $selected . '>' . esc_html($city_option) . '</option>';
         }
-        echo '</select></td>';
+        echo '</select>' . esc_html($debug_info) . '</td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][orderDetail]" value="' . $items_str . '" /></td>';
         echo '<td><input type="number" step="0.01" name="orders[' . $order_id . '][invoicePayment]" value="' . $cod_amount . '" /></td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][orderRefNumber]" value="' . $order_ref . '" /></td>';
