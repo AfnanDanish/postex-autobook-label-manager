@@ -18,12 +18,17 @@ add_action('woocommerce_thankyou', function($order_id) {
     $pickup_address_code = get_option('postex_pickup_address_code', '001');
     if ( ! $api_token ) return;
 
+    // Get operational cities and find best match
+    $operational_cities = function_exists('postex_get_operational_cities') ? postex_get_operational_cities() : [];
+    $user_city = $order->get_billing_city();
+    $matched_city = function_exists('postex_find_best_city_match') ? postex_find_best_city_match($user_city, $operational_cities) : $user_city;
+
     // Prepare data for PostEx /create-order
     $billing = [
         'customerName'    => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
         'customerPhone'   => $order->get_billing_phone(),
         'deliveryAddress' => $order->get_billing_address_1() . ' ' . $order->get_billing_address_2(),
-        'cityName'        => $order->get_billing_city(),
+        'cityName'        => $matched_city,
     ];
     $order_items = $order->get_items();
     $items_count = $order->get_item_count();

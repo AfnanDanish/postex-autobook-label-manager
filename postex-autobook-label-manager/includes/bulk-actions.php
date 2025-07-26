@@ -46,6 +46,57 @@ function postex_get_operational_cities() {
     return [];
 }
 
+function postex_find_best_city_match($user_city, $operational_cities) {
+    if (empty($user_city) || empty($operational_cities)) {
+        return '';
+    }
+    
+    $user_city_lower = strtolower(trim($user_city));
+    
+    // First: Try exact match (case insensitive)
+    foreach ($operational_cities as $city) {
+        if (strtolower(trim($city)) === $user_city_lower) {
+            return $city;
+        }
+    }
+    
+    // Second: Try partial match (user city contains operational city or vice versa)
+    foreach ($operational_cities as $city) {
+        $city_lower = strtolower(trim($city));
+        if (strpos($user_city_lower, $city_lower) !== false || strpos($city_lower, $user_city_lower) !== false) {
+            return $city;
+        }
+    }
+    
+    // Third: Try common city name variations
+    $city_variations = [
+        'lahore' => ['lahore', 'lhr'],
+        'karachi' => ['karachi', 'khi'],
+        'islamabad' => ['islamabad', 'isb'],
+        'rawalpindi' => ['rawalpindi', 'rwp'],
+        'faisalabad' => ['faisalabad', 'fsd'],
+        'multan' => ['multan', 'mtn'],
+        'peshawar' => ['peshawar', 'pwr'],
+        'quetta' => ['quetta', 'qta'],
+        'hyderabad' => ['hyderabad', 'hyd'],
+        'gujranwala' => ['gujranwala', 'gjw'],
+        'sialkot' => ['sialkot', 'skt']
+    ];
+    
+    foreach ($city_variations as $standard => $variations) {
+        if (in_array($user_city_lower, $variations)) {
+            foreach ($operational_cities as $city) {
+                if (strtolower(trim($city)) === $standard) {
+                    return $city;
+                }
+            }
+        }
+    }
+    
+    // Return first city if no match found (fallback)
+    return !empty($operational_cities) ? $operational_cities[0] : '';
+}
+
 function postex_bulk_book_review_page() {
     if (empty($_GET['order_ids'])) {
         echo '<div class="notice notice-error"><p>' . esc_html__('No orders selected.', 'postex-autobook-label-manager') . '</p></div>';
@@ -92,9 +143,10 @@ function postex_bulk_book_review_page() {
         echo '<td><input type="text" name="orders[' . $order_id . '][customerPhone]" value="' . $phone . '" /></td>';
         echo '<td><input type="text" name="orders[' . $order_id . '][deliveryAddress]" value="' . $address . '" /></td>';
         // City dropdown
+        $best_match = postex_find_best_city_match($city, $cities);
         echo '<td><select name="orders[' . $order_id . '][cityName]">';
         foreach ($cities as $city_option) {
-            $selected = ($city_option == $city) ? 'selected' : '';
+            $selected = ($city_option === $best_match) ? 'selected' : '';
             echo '<option value="' . esc_attr($city_option) . '" ' . $selected . '>' . esc_html($city_option) . '</option>';
         }
         echo '</select></td>';
